@@ -71,40 +71,44 @@
    (doseq [line (line-seq rdr)]
      (ingest (deserialize line)))))
 
-(defn ^:private txn-file-number [file]
-  (second (re-matches #"(\d+)\.journal\z" (.getName file))))
+(defn ^:private file-number-matcher [pattern]
+  (fn [file] (second (re-matches pattern (.getName file)))))
 
-(defn ^:private journal-numbers [basedir]
-  (map #(BigDecimal. %) (remove nil? (map txn-file-number (file-seq basedir)))))
+(defn ^:private file-numbers [dir pattern]
+  (map #(BigDecimal. %) (remove nil? (map (file-number-matcher pattern) (file-seq dir)))))
 
-(defn ^:private journal-file-name [data-dir txn-number]
-  (str data-dir "/" txn-number ".journal"))
+(defn ^:private journal-file-name [dir txn-number]
+  (str dir "/" txn-number ".journal"))
 
 ;; Snapshot writing
 (defn write-snapshot [snapshot fname]
-  (with-open [w (writer fname)]
+  (future (with-open [w (writer fname)]
     (.write w snapshot)
-    (.flush w)))
+    (.flush w))))
 
 (defn create-snapshot
   "Serialize the persistent refs as a snapshot that will be loaded on next start."
   [ref-list]
   (apply clj-serialize (map deref ref-list)))
 
-(defn snapshot-filename [id data-dir]
-  (str data-dir "/" id ".snapshot"))
+(defn snapshot-filename [id dir]
+  (str dir "/" id ".snapshot"))
 
-(defn snapshot-writer [ref-list data-dir]
+(defn snapshot-writer [ref-list dir]
   (println "Taking snapshots")
   (thread
     (loop []
       (let [last-executed-id (<!! exec-await)]
         (if (zero? (rem last-executed-id 10))
-          (write-snapshot (create-snapshot ref-list) (snapshot-filename last-executed-id data-dir))))
+          (write-snapshot (create-snapshot ref-list) (snapshot-filename last-executed-id dir))))
       (>!! snapshot-await :go)
       (recur))))
 
-;; Snapshot reading
+
+(defn read-latest-snapshot [dir]
+  (let [snapshot-nums (file-numbers dir #"(\d+)\.snapshot\z")]
+    (if (empty? snapshot-nums) nil)))
+
 (defn init-db
   "Initialise the persistence base, reading and executing all persisted transactions."
   [& {:keys [data-dirname ref-list]
@@ -119,7 +123,7 @@
         (.mkdir data-dir)
         (throw (RuntimeException. (str "Can't create database directory \"" data-dir "\"")))))
     ;Read journal
-    (doseq [n (sort (journal-numbers data-dir))]
+    (doseq [n (sort (file-numbers data-dir #"(\d+)\.journal\z"))]
       (read-journal (journal-file-name data-dir n)))
     ;Start writer
     (if ref-list (snapshot-writer ref-list data-dir))
@@ -134,7 +138,7 @@
     (put! input-ch {:fn txn-fn :args args :ret c})
     c))
 
-;; APP CODE
+;;; APP CODE
 (def msgs (ref []))
 
 ; Current time as string
