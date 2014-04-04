@@ -104,10 +104,14 @@
       (>!! snapshot-await :go)
       (recur))))
 
+(defn read-snapshot [dir num]
+  (deserialize (slurp (str dir "/" num ".snapshot"))))
 
-(defn read-latest-snapshot [dir]
-  (let [snapshot-nums (file-numbers dir #"(\d+)\.snapshot\z")]
-    (if (empty? snapshot-nums) nil)))
+(defn latest-snapshot-id [dir]
+  (apply max (seq (file-numbers dir #"(\d+)\.snapshot\z")))
+
+(def apply-snapshot [snapshot ref-list]
+  (map #(dosync (ref-set %1 %2)) ref-list snapshot)
 
 (defn init-db
   "Initialise the persistence base, reading and executing all persisted transactions."
@@ -122,6 +126,7 @@
       (when-not
         (.mkdir data-dir)
         (throw (RuntimeException. (str "Can't create database directory \"" data-dir "\"")))))
+    ;Read snapshot TODO
     ;Read journal
     (doseq [n (sort (file-numbers data-dir #"(\d+)\.journal\z"))]
       (read-journal (journal-file-name data-dir n)))
