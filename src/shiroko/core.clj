@@ -108,10 +108,10 @@
   (deserialize (slurp (str dir "/" num ".snapshot"))))
 
 (defn latest-snapshot-id [dir]
-  (apply max (seq (file-numbers dir #"(\d+)\.snapshot\z")))
+  (apply max (seq (file-numbers dir #"(\d+)\.snapshot\z"))))
 
-(def apply-snapshot [snapshot ref-list]
-  (map #(dosync (ref-set %1 %2)) ref-list snapshot)
+(defn apply-snapshot [snapshot ref-list]
+  (map #(dosync (ref-set %1 %2)) ref-list snapshot))
 
 (defn init-db
   "Initialise the persistence base, reading and executing all persisted transactions."

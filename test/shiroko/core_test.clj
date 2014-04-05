@@ -19,12 +19,12 @@
 (deftest simple-transaction
   (testing "Simple increment transaction"
     (delete-test-files)
-    (init-db "testbase")
+    (init-db :data-dirname "testbase")
     (assert (= 3 (<!! (apply-transaction increment-x))))
     (assert (= 3 @x))))
 
 (deftest transaction-fails
   (testing "Failing transaction closes channel"
     (delete-test-files)
-    (init-db "testbase")
+    (init-db :data-dirname "testbase")
     (assert (nil? (<!! (apply-transaction bad-txn))))))
