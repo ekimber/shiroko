@@ -4,7 +4,7 @@
   (:use clojure.java.io)
   (:use clojure.tools.logging)
   (:require [clojure.string :refer [join split]])
-  (:require [clojure.core.async :as async :refer [put! >!! <!! chan go go-loop map< thread close! mult tap untap filter<]])
+  (:require [clojure.core.async :as async :refer [put! >!! <!! chan go go-loop map< thread close! mult tap]])
   (:require [clj-time.format :as f])
   (:require [clj-time.local :as l])
   (:require [clojurewerkz.serialism.core :as s]))
