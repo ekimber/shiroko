@@ -1,10 +1,12 @@
+[![Build Status](https://travis-ci.org/ekimber/shiroko.svg?branch=master)](https://travis-ci.org/ekimber/shiroko)
+
 # shiroko
 
-FIXME: description
+Clojure Data Prevalence library.
 
 ## Installation
 
-Download from http://example.com/FIXME.
+TODO
 
 ## Usage
 
@@ -18,19 +20,11 @@ FIXME: listing of options this app accepts.
 
 ## Examples
 
-...
-
 ### Bugs
-
-...
-
-### Any Other Sections
-### That You Think
-### Might be Useful
 
 ## License
 
-Copyright © 2014 FIXME
+Copyright © 2014 Edward Kimber
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.
