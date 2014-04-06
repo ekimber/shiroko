@@ -1,8 +1,6 @@
-[![Build Status](https://travis-ci.org/ekimber/shiroko.svg?branch=master)](https://travis-ci.org/ekimber/shiroko)
+# shiroko [![Build Status](https://travis-ci.org/ekimber/shiroko.svg?branch=master)](https://travis-ci.org/ekimber/shiroko)
+Clojure Data Prevalence library. 
 
-# shiroko
-
-Clojure Data Prevalence library.
 
 ## Installation
 
