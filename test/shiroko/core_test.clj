@@ -43,6 +43,10 @@
   (read-snapshot "." 11) => '(2)
   (delete-file (file "11.snapshot")))
 
+(fact "Find last journal number before snapshot"
+  (journal-to-start 10 '(3 10 23)) => 10
+  (journal-to-start 9 '(3 10 23)) => 3)
+
 (fact :bench "bench test"
   (bench (<!! (apply-transaction increment-x))))
 
