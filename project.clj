@@ -9,7 +9,8 @@
                  [clojurewerkz/serialism "1.1.0"]
                  [org.clojure/tools.logging "0.2.3"]
                  [criterium "0.4.3"]]
-  :plugins [[lein-marginalia "0.7.1"]]
+  :plugins [[lein-marginalia "0.7.1"]
+            [lein-midje "3.1.3"]]
   :main ^:skip-aot shiroko.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}
