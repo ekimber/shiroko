@@ -12,7 +12,8 @@
   :plugins [[lein-marginalia "0.7.1"]]
   :main ^:skip-aot shiroko.core
   :target-path "target/%s"
-  :profiles {:uberjar {:aot :all}}
+  :profiles {:uberjar {:aot :all}
+             :dev {:dependencies [[midje "1.6.3"]]}}
   :test-selectors {:default (complement :bench)
                    :bench :bench
                    :all (constantly true)})
