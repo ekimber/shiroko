@@ -7,8 +7,12 @@
                  [org.clojure/core.async "0.1.278.0-76b25b-alpha"]
                  [clj-time "0.6.0"]
                  [clojurewerkz/serialism "1.1.0"]
-                 [org.clojure/tools.logging "0.2.3"]]
+                 [org.clojure/tools.logging "0.2.3"]
+                 [criterium "0.4.3"]]
   :plugins [[lein-marginalia "0.7.1"]]
   :main ^:skip-aot shiroko.core
   :target-path "target/%s"
-  :profiles {:uberjar {:aot :all}})
+  :profiles {:uberjar {:aot :all}}
+  :test-selectors {:default (complement :bench)
+                   :bench :bench
+                   :all (constantly true)})

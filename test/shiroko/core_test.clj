@@ -2,12 +2,16 @@
   (:use clojure.java.io)
   (:require [clojure.test :refer :all]
             [shiroko.core :refer :all]
-            [clojure.core.async :refer [<!!]]))
+            [clojure.core.async :refer [<!!]]
+            [criterium.core :refer [bench]]))
 
 (def x (ref 2))
 
 (defn increment-x []
   (ref-set x (inc @x)))
+
+(defn times-2-x []
+  (ref-set x (* 2 @x)))
 
 (defn bad-txn []
   (throw (RuntimeException.)))
@@ -17,12 +21,16 @@
     (delete-file f true)))
 
 (defn db-setup [f]
-  (dosync (ref-set x 2))
   (init-db :data-dirname "testbase")
   (f)
   (delete-test-files))
 
-(use-fixtures :each db-setup)
+(defn reset-refs [f]
+  (dosync (ref-set x 2))
+  (f))
+
+(use-fixtures :once db-setup)
+(use-fixtures :each reset-refs)
 
 (deftest simple-transaction
   (testing "Simple increment transaction"
@@ -39,6 +47,6 @@
     (is (= '(2) (read-snapshot "." 11)))
     (delete-file (file "11.snapshot")))
 
-;(deftest stress-test
-;  (testing "1 million transaction test")
-;  (dosyn
+(deftest ^:bench bench-test
+  (testing "bench test")
+  (bench (<!! (apply-transaction increment-x))))

@@ -30,15 +30,15 @@
 (def exec-await (chan))
 
 (defn ^:private txn-executor [ch]
-  (go-loop []
-    (let [txn (<! ch)]
+  (loop []
+    (let [txn (<!! ch)]
       (try
         (put! (:ret txn) (dosync (apply (:fn txn) (:args txn))))
         (catch Exception e
           (warn e "Exception thrown while executing transaction.")
           (close! (:ret txn))))
-      (>! exec-await (:id txn))
-      (<! snapshot-await))
+      (>!! exec-await (:id txn))
+      (<!! snapshot-await))
     (recur)))
 
 (defn ^:private write-to-stream [w txn]
@@ -46,13 +46,12 @@
   (.flush w))
 
 (defn ^:private txn-writer [filename]
-  (thread
-    (with-open [w (writer filename)]
-      (loop []
-        (let [txn (<!! journal-channel)]
-          (when txn
-            (write-to-stream w txn)
-            (recur)))))))
+  (with-open [w (writer filename)]
+    (loop []
+    (let [txn (<!! journal-channel)]
+      (when txn
+        (write-to-stream w txn)
+        (recur))))))
 
 ;; Journal reading
 (defn ^:private ingest
@@ -95,14 +94,12 @@
   (str dir "/" id ".snapshot"))
 
 (defn snapshot-writer [ref-list dir]
-  (println "Taking snapshots")
-  (thread
-    (loop []
-      (let [last-executed-id (<!! exec-await)]
-        (if (zero? (rem last-executed-id 10))
-          (write-snapshot (create-snapshot ref-list) (snapshot-filename last-executed-id dir))))
+  (loop []
+    (let [last-executed-id (<!! exec-await)]
+      (if (zero? (rem last-executed-id 10))
+        (write-snapshot (create-snapshot ref-list) (snapshot-filename last-executed-id dir))))
       (>!! snapshot-await :go)
-      (recur))))
+    (recur)))
 
 (defn read-snapshot [dir num]
   (deserialize (slurp (str dir "/" num ".snapshot"))))
@@ -126,14 +123,17 @@
       (when-not
         (.mkdir data-dir)
         (throw (RuntimeException. (str "Can't create database directory \"" data-dir "\"")))))
+    (reset! txn-counter 0M)
     ;Read snapshot TODO
     ;Read journal
     (doseq [n (sort (file-numbers data-dir #"(\d+)\.journal\z"))]
       (read-journal (journal-file-name data-dir n)))
     ;Start writer
-    (if ref-list (snapshot-writer ref-list data-dir))
-    (txn-writer (journal-file-name data-dir (inc @txn-counter)))
-    (txn-executor exec-ch)))
+    (if ref-list
+      (thread (snapshot-writer ref-list data-dir))
+      (async/pipe exec-await snapshot-await))
+    (thread (txn-writer (journal-file-name data-dir (inc @txn-counter))))
+    (thread (txn-executor exec-ch))))
 
 (defn apply-transaction
   "Persist and apply a transaction, returning a channel that will contain the result. "
