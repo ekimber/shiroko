@@ -1,5 +1,6 @@
 language: clojure
-script: lein midje :filter -bench
+lein: lein2
+script: lein2 midje :filter -bench
 jdk:
   - oraclejdk7
   - openjdk7
