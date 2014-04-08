@@ -10,20 +10,21 @@ TODO
 
 Create a ref to be persisted.
 
-  (def persistent (ref 0))
+    (def persistent (ref 0))
 
 Create a transaction that modifies the ref.
 
-  (defn add-to-x [a]
-    (ref-set x (+ x a)))
+    (defn add-to-x [a]
+      (ref-set x (+ x a)))
 
 Initialise the persistent store with a list of refs (these will be used to make snapshots).  Then
 use `apply-transaction` to make changes to the refs.  It returns an async channel that will contain
-the result of the transaction.
+the result of the transaction. The `batch-size` option determines how many transactions will be stored
+in each journal file.
 
-  (let [base (init-db :ref-list [a] :batch-size 4)]
-    (dotimes [n 10]
-      (println (<!! (apply-transaction inc-x)))))
+    (let [base (init-db :ref-list [a] :batch-size 1000)]
+      (dotimes [n 10]
+        (println (<!! (apply-transaction inc-x)))))
 
 The transactions will be persisted and replayed next time `init-db` is called.
 
@@ -31,7 +32,7 @@ Pass the returned persistent system to `take-snapshot` to take a snapshot of the
 latest snapshot is loaded at the next initialisation. This will improve start-up time when there
 are a large number of transactions.
 
-      (take-snapshot base)
+        (take-snapshot base)
 
 ## Options
 
