@@ -109,7 +109,6 @@
 
 (defn ^:private txn-executor "Take and execute transactions on channel."
   ([input]
-    (println "no snapshots")
     (loop [] (execute (<!! input)) (recur)))
   ([input snapshot]
     (if (nil? snapshot)
@@ -155,16 +154,14 @@
         (throw (RuntimeException. (str "Can't create database directory \"" dir "\"")))))
     (reset! txn-counter 0M)
     ;Read snapshot TODO
-    (if-let [last-txn-id (latest-snapshot-id dir)]
-      (do
-        (apply-snapshot (read-snapshot dir last-txn-id) ref-list)
-        (reset! txn-counter (inc last-txn-id))))
+    (when-let [last-txn-id (latest-snapshot-id dir)]
+      (apply-snapshot (read-snapshot dir last-txn-id) ref-list)
+      (reset! txn-counter (inc last-txn-id)))
     ;Read journal
     (doseq [n (journals-from @txn-counter (file-numbers dir #"(\d+)\.journal\z"))]
       (read-journal (journal-file-name dir n)))
     ;Start writer
-    (let [trigger (chan)
-          input-mult (mult input-ch)]
+    (let [trigger (chan) input-mult (mult input-ch)]
       (tap input-mult (txn-journaller dir batch-size)) ; pushes input transactions into the journaller
       (thread (txn-executor (tap input-mult (chan)) (if ref-list (snapshot-writer ref-list dir trigger))))
       {:snapshot-trigger trigger})))
