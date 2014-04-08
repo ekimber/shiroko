@@ -1,6 +1,10 @@
 # shiroko [![Build Status](https://travis-ci.org/ekimber/shiroko.svg?branch=master)](https://travis-ci.org/ekimber/shiroko)
 Clojure Data Prevalence library. 
 
+Leiningen dependencies:
+     [org.clojure/clojure "1.5.1"]
+     [ekimber/shiroko "0.1.0"]
+
 ## Usage
 
 Create a ref to be persisted.

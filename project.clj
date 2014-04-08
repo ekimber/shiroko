@@ -1,4 +1,4 @@
-(defproject shiroko "0.1.0"
+(defproject ekimber/shiroko "0.1.0"
   :description "Clojure Data Prevalence Library"
   :url "https://github.com/ekimber/shiroko"
   :license {:name "Eclipse Public License"
