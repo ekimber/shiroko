@@ -10,7 +10,7 @@ TODO
 
 Create a ref to be persisted.
 
-    (def persistent (ref 0))
+    (def x (ref 0))
 
 Create a transaction that modifies the ref.
 
@@ -22,7 +22,7 @@ use `apply-transaction` to make changes to the refs.  It returns an async channe
 the result of the transaction. The `batch-size` option determines how many transactions will be stored
 in each journal file.
 
-    (let [base (init-db :ref-list [a] :batch-size 1000)]
+    (let [base (init-db :ref-list [x] :batch-size 1000)]
       (dotimes [n 10]
         (println (<!! (apply-transaction inc-x)))))
 
@@ -34,13 +34,6 @@ are a large number of transactions.
 
         (take-snapshot base)
 
-## Options
-
-FIXME: listing of options this app accepts.
-
-## Examples
-
-### Bugs
 
 ## License
 
