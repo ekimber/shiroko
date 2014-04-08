@@ -4,7 +4,7 @@
   (:use clojure.java.io)
   (:use clojure.tools.logging)
   (:require [clojure.string :refer [join split]])
-  (:require [clojure.core.async :as async :refer [put! take! >!! <!! chan go go-loop map< thread close! mult tap alt!]])
+  (:require [clojure.core.async :as async :refer [put! take! >!! <!! chan go go-loop map< thread close! mult tap alt!!]])
   (:require [clj-time.format :as f])
   (:require [clj-time.local :as l])
   (:require [clojurewerkz.serialism.core :as s]))
@@ -21,27 +21,6 @@
 
 (defn ^:private serialize-txn [txn]
   (clj-serialize (:fn txn) (:args txn) (:id txn)))
-
-(def input-ch (map< enumerate-txn (chan 10)))
-(def input-mult (mult input-ch))
-(def snapshot-await (chan))
-(def exec-await (chan))
-(def snapshot-trigger (chan))
-
-(defn ^:private execute [txn]
-  (try
-    (put! (:ret txn) (dosync (apply (:fn txn) (:args txn))))
-    (catch Exception e
-      (warn e "Exception thrown while executing transaction.")
-      (close! (:ret txn)))))
-
-(defn ^:private txn-executor "Take and execute transactions on channel."
-  [in]
-    (thread
-      (loop []
-        (execute (<!! in))
-        (>!! snapshot-await :ready)
-        (recur))))
 
 ;; Journal reading
 (defn ^:private ingest
@@ -112,16 +91,30 @@
 (defn snapshot-filename [id dir]
   (str dir "/" id ".snapshot"))
 
-(defn snapshot-writer [ref-list dir input]
-  (let [out (chan)]
-    (go-loop [txn (<! input)]
-      (>! out txn)
-      (<! snapshot-await)
-      (alt!
-        snapshot-trigger (write-snapshot (create-snapshot ref-list) (snapshot-filename (txn :id) dir))
-        :default :noop)
-      (recur (<! input)))
-    out))
+(defn snapshot-writer [ref-list dir snapshot-trigger]
+  (fn [txn]
+    (alt!!
+      snapshot-trigger (write-snapshot (create-snapshot ref-list) (snapshot-filename (txn :id) dir))
+      :default :noop)))
+
+(defn ^:private execute [txn]
+  (try
+    (put! (:ret txn) (dosync (apply (:fn txn) (:args txn))))
+    (catch Exception e
+      (warn e "Exception thrown while executing transaction.")
+      (close! (:ret txn)))))
+
+(defn ^:private txn-executor "Take and execute transactions on channel."
+  ([input]
+    (println "no snapshots")
+    (loop [] (execute (<!! input)) (recur)))
+  ([input snapshot]
+    (if (nil? snapshot)
+      (txn-executor input)
+      (loop [txn (<!! input)]
+        (execute txn)
+        (snapshot txn)
+        (recur (<!! input))))))
 
 (defn read-snapshot [dir num]
   (deserialize (slurp (str dir "/" num ".snapshot"))))
@@ -135,8 +128,12 @@
 (defn journal-to-start [snapshot-num journal-nums]
   (last (filter #(<= % snapshot-num) journal-nums)))
 
+(def input-ch (map< enumerate-txn (chan 10)))
+
 (defn init-db
-  "Initialise the persistence base, reading and executing all persisted transactions."
+  "Initialise the persistence base, reading and executing all persisted transactions.
+  Options:
+    ref-list: list of refs to persist in snapshots"
   [& {:keys [data-dirname ref-list batch-size]
       :or {data-dirname "base"
            ref-list nil
@@ -155,11 +152,11 @@
     (doseq [n (sort (file-numbers data-dir #"(\d+)\.journal\z"))]
       (read-journal (journal-file-name data-dir n)))
     ;Start writer
-    (let [txn-input (tap input-mult (chan))]
-      (if (nil? ref-list)
-        (txn-executor txn-input)
-        (txn-executor (snapshot-writer ref-list data-dir txn-input))))
-    (tap input-mult (txn-journaller data-dir batch-size)))) ; taps input transactions into the writer
+    (let [trigger (chan)
+          input-mult (mult input-ch)]
+      (tap input-mult (txn-journaller data-dir batch-size)) ; pushes input transactions into the journaller
+      (thread (txn-executor (tap input-mult (chan)) (if ref-list (snapshot-writer ref-list data-dir trigger))))
+      {:snapshot-trigger trigger})))
 
 (defn apply-transaction
   "Persist and apply a transaction, returning a channel that will contain the result. "
@@ -169,8 +166,9 @@
     (put! input-ch {:fn txn-fn :args args :ret c})
     c))
 
-(defn take-snapshot "Pauses execution and takes a snapshot" []
-  (put! snapshot-trigger :go))
+(defn take-snapshot "Pauses execution and takes a snapshot."
+  [prevalent-system]
+  (put! (prevalent-system :snapshot-trigger) :go))
 
 ;;; APP CODE
 (def msgs (ref []))
@@ -185,11 +183,10 @@
 (defn -main
   "I don't do a whole lot ... yet."
   [& args]
-  (init-db :ref-list [msgs] :batch-size 4)
-  (dotimes [n 10]
-    (<!! (apply-transaction write-msg "Bob" n (now-str))))
-  (take-snapshot)
-  (dotimes [n 10]
-    (thread (<!! (apply-transaction write-msg "Bob" n (now-str)))))
-  (Thread/sleep 500)
-)
+  (let [base (init-db :ref-list [msgs] :batch-size 4)]
+    (dotimes [n 10]
+      (<!! (apply-transaction write-msg "Bob" n (now-str))))
+    (take-snapshot base)
+    (dotimes [n 10]
+      (thread (<!! (apply-transaction write-msg "Bob" n (now-str))))))
+    (Thread/sleep 500))
