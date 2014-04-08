@@ -1,4 +1,4 @@
-(ns shiroko.core-test
+(ns ^{:author "Ed Kimber"} shiroko.core-test
   (:use clojure.java.io)
   (:require [clojure.test :refer :all]
             [midje.sweet :refer :all]

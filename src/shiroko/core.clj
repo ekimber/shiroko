@@ -5,8 +5,6 @@
   (:use clojure.tools.logging)
   (:require [clojure.string :refer [join split]])
   (:require [clojure.core.async :as async :refer [put! take! >!! <!! chan go go-loop map< thread close! mult tap alt!!]])
-  (:require [clj-time.format :as f])
-  (:require [clj-time.local :as l])
   (:require [clojurewerkz.serialism.core :as s]))
 
 (def txn-counter (atom 0M))
@@ -88,13 +86,12 @@
 
 (defn create-snapshot
   "Serialize the persistent refs as a snapshot that will be loaded on next start."
-  [ref-list]
-  (apply clj-serialize (map deref ref-list)))
+  [ref-list] (apply clj-serialize (map deref ref-list)))
 
 (defn snapshot-filename [id dir]
   (str dir "/" id ".snapshot"))
 
-(defn snapshot-writer [ref-list dir snapshot-trigger]
+(defn ^:private snapshot-writer [ref-list dir snapshot-trigger]
   (fn [txn]
     (alt!!
       snapshot-trigger (write-snapshot (create-snapshot ref-list) (snapshot-filename (txn :id) dir))
@@ -153,7 +150,7 @@
         (.mkdir dir)
         (throw (RuntimeException. (str "Can't create database directory \"" dir "\"")))))
     (reset! txn-counter 0M)
-    ;Read snapshot TODO
+    ;Read snapshot
     (when-let [last-txn-id (latest-snapshot-id dir)]
       (apply-snapshot (read-snapshot dir last-txn-id) ref-list)
       (reset! txn-counter (inc last-txn-id)))
@@ -164,7 +161,7 @@
     (let [trigger (chan) input-mult (mult input-ch)]
       (tap input-mult (txn-journaller dir batch-size)) ; pushes input transactions into the journaller
       (thread (txn-executor (tap input-mult (chan)) (if ref-list (snapshot-writer ref-list dir trigger))))
-      {:snapshot-trigger trigger})))
+      {:snapshot-trigger trigger :ref-list ref-list})))
 
 (defn apply-transaction
   "Persist and apply a transaction, returning a channel that will contain the result. "
@@ -177,24 +174,3 @@
 (defn take-snapshot "Pauses execution and takes a snapshot."
   [prevalent-system]
   (put! (prevalent-system :snapshot-trigger) :go))
-
-;;; APP CODE
-(def msgs (ref []))
-
-; Current time as string
-(def iso-date (f/formatter "hh:mm:ss.SSS"))
-(defn now-str [] (f/unparse iso-date (l/local-now)))
-
-(defn write-msg [name msg time]
-  (ref-set msgs (conj @msgs [name msg time])))
-
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& args]
-  (let [base (init-db :ref-list [msgs] :batch-size 4)]
-    (dotimes [n 10]
-      (<!! (apply-transaction write-msg "Bob" n (now-str))))
-    (take-snapshot base)
-    (dotimes [n 10]
-      (thread (<!! (apply-transaction write-msg "Bob" n (now-str))))))
-    (Thread/sleep 500))
