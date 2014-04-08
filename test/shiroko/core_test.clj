@@ -25,7 +25,7 @@
 (defn reset-refs []
   (dosync (ref-set x 2)))
 
-(init-db :data-dirname "testbase")
+(init-db :data-dir "testbase")
 
 (namespace-state-changes
   [(before :facts (reset-refs))])
@@ -43,9 +43,9 @@
   (read-snapshot "." 11) => '(2)
   (delete-file (file "11.snapshot")))
 
-(fact "Find last journal number before snapshot"
-  (journal-to-start 10 '(3 10 23)) => 10
-  (journal-to-start 9 '(3 10 23)) => 3)
+(fact "Find journal sequence for snapshot number."
+  (journals-from 10 '(3 10 23)) => '(10 23)
+  (journals-from 9 '(23 2 12)) => '(2 12 23))
 
 (fact :bench "bench test"
   (bench (<!! (apply-transaction increment-x))))

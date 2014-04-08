@@ -26,10 +26,13 @@
 (defn ^:private ingest
   "Update the transaction counter and execute a transaction."
   [[f args txn-id]]
-  (assert (= (swap! txn-counter inc) txn-id) (str "Missing transaction " txn-id "?"))
-  (try
-    (dosync (apply f args))
-    (catch Exception e (warn e "Exception thrown while reading transaction."))))
+  (if-not (< txn-id @txn-counter)
+    (do
+      (assert (= @txn-counter txn-id) (str "Wanted " txn-id " but counter says " @txn-counter))
+      (try
+        (dosync (apply f args))
+        (catch Exception e (warn e "Exception thrown while reading transaction.")))
+      (swap! txn-counter inc))))
 
 (defn ^:private deserialize [txn]
   (map #(s/deserialize % s/clojure-content-type) (split txn #";")))
@@ -120,42 +123,50 @@
   (deserialize (slurp (str dir "/" num ".snapshot"))))
 
 (defn latest-snapshot-id [dir]
-  (apply max (seq (file-numbers dir #"(\d+)\.snapshot\z"))))
+  (if-let [snap-nums (seq (file-numbers dir #"(\d+)\.snapshot\z"))]
+    (apply max snap-nums)))
 
 (defn apply-snapshot [snapshot ref-list]
   (map #(dosync (ref-set %1 %2)) ref-list snapshot))
 
-(defn journal-to-start [snapshot-num journal-nums]
-  (last (filter #(<= % snapshot-num) journal-nums)))
+(defn journals-from [snapshot-num journal-nums]
+  (let [sorted (sort journal-nums)]
+    (filter (fn [x] (>= x (last (filter #(<= % snapshot-num) sorted)))) sorted)))
 
 (def input-ch (map< enumerate-txn (chan 10)))
 
 (defn init-db
   "Initialise the persistence base, reading and executing all persisted transactions.
   Options:
-    ref-list: list of refs to persist in snapshots"
-  [& {:keys [data-dirname ref-list batch-size]
-      :or {data-dirname "base"
+    ref-list: list of refs to persist in snapshots
+    batch-size: number of transactions per journal
+    data-"
+  [& {:keys [data-dir ref-list batch-size]
+      :or {data-dir "base"
            ref-list nil
            batch-size 1000}}]
-  (let [data-dir (File. data-dirname)]
-    (if (.exists data-dir)
+  (let [dir (File. data-dir)]
+    (if (.exists dir)
       (when-not
-        (.isDirectory data-dir)
-        (throw (RuntimeException. (str "\"" data-dir "\" must be a directory"))))
+        (.isDirectory dir)
+        (throw (RuntimeException. (str "\"" dir "\" must be a directory"))))
       (when-not
-        (.mkdir data-dir)
-        (throw (RuntimeException. (str "Can't create database directory \"" data-dir "\"")))))
+        (.mkdir dir)
+        (throw (RuntimeException. (str "Can't create database directory \"" dir "\"")))))
     (reset! txn-counter 0M)
     ;Read snapshot TODO
+    (if-let [last-txn-id (latest-snapshot-id dir)]
+      (do
+        (apply-snapshot (read-snapshot dir last-txn-id) ref-list)
+        (reset! txn-counter (inc last-txn-id))))
     ;Read journal
-    (doseq [n (sort (file-numbers data-dir #"(\d+)\.journal\z"))]
-      (read-journal (journal-file-name data-dir n)))
+    (doseq [n (journals-from @txn-counter (file-numbers dir #"(\d+)\.journal\z"))]
+      (read-journal (journal-file-name dir n)))
     ;Start writer
     (let [trigger (chan)
           input-mult (mult input-ch)]
-      (tap input-mult (txn-journaller data-dir batch-size)) ; pushes input transactions into the journaller
-      (thread (txn-executor (tap input-mult (chan)) (if ref-list (snapshot-writer ref-list data-dir trigger))))
+      (tap input-mult (txn-journaller dir batch-size)) ; pushes input transactions into the journaller
+      (thread (txn-executor (tap input-mult (chan)) (if ref-list (snapshot-writer ref-list dir trigger))))
       {:snapshot-trigger trigger})))
 
 (defn apply-transaction
