@@ -1,4 +1,4 @@
-(defproject ekimber/shiroko "0.1.0"
+(defproject ekimber/shiroko "0.1.1"
   :description "Clojure Data Prevalence Library"
   :url "https://github.com/ekimber/shiroko"
   :license {:name "Eclipse Public License"
@@ -13,6 +13,7 @@
                  :plugins [[lein-marginalia "0.7.1"]
             [lein-midje "3.1.3"]]
   :main ^:skip-aot shiroko.example-app
+  :repl-options {:init-ns shiroko.core}
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}
              :dev {:dependencies [[midje "1.6.3"]]}})

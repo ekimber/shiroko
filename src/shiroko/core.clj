@@ -1,16 +1,11 @@
 (ns ^{:author "Ed Kimber"}
   shiroko.core
-  (:import (java.io File Reader FileOutputStream FileInputStream) [java.math BigDecimal])
+  (:import (java.io File Reader FileOutputStream FileInputStream))
   (:use clojure.java.io)
   (:use clojure.tools.logging)
   (:require [clojure.string :refer [join split]])
   (:require [clojure.core.async :as async :refer [put! take! >!! <!! chan go go-loop map< thread close! mult tap alt!!]])
   (:require [clojurewerkz.serialism.core :as s]))
-
-(def txn-counter (atom 0M))
-
-(defn ^:private enumerate-txn [txn]
-  (assoc txn :id (swap! txn-counter inc)))
 
 (defn ^:private clj-serialize
   "Serialize args as ;-separated clojure strings"
@@ -23,31 +18,45 @@
 ;; Journal reading
 (defn ^:private ingest
   "Update the transaction counter and execute a transaction."
-  [[f args txn-id]]
-  (if-not (< txn-id @txn-counter)
-    (do
-      (assert (= @txn-counter txn-id) (str "Wanted " txn-id " but counter says " @txn-counter))
+  [[f args txn-id] counter]
+  (if (> txn-id counter)
+    (throw (Exception. (str "Wanted " txn-id " but counter says " counter))))
+    (if (= txn-id counter)
       (try
         (dosync (apply f args))
-        (catch Exception e (warn e "Exception thrown while reading transaction.")))
-      (swap! txn-counter inc))))
+        (catch Exception e (warn e "Exception thrown while reading transaction.")))))
 
 (defn ^:private deserialize [txn]
   (map #(s/deserialize % s/clojure-content-type) (split txn #";")))
-
-(defn ^:private read-journal [filename]
-  (with-open [rdr (reader filename)]
-   (doseq [line (line-seq rdr)]
-     (ingest (deserialize line)))))
 
 (defn ^:private file-number-matcher [pattern]
   (fn [file] (second (re-matches pattern (.getName file)))))
 
 (defn ^:private file-numbers [dir pattern]
-  (map #(BigDecimal. %) (remove nil? (map (file-number-matcher pattern) (file-seq dir)))))
+  (map #(Long/parseLong %) (remove nil? (map (file-number-matcher pattern) (file-seq dir)))))
 
 (defn ^:private journal-file-name [dir txn-number]
   (str dir "/" txn-number ".journal"))
+
+(defn journals-from [n nums]
+  (let [s (sort nums)]
+    (if (or (empty? (rest s)) (> (second s) n))
+      s
+      (recur n (rest s)))))
+
+(defn ^:private read-journal [dir start-txn]
+  (with-open [rdr (reader (journal-file-name dir start-txn))]
+    (loop [lines (line-seq rdr) counter start-txn]
+      (if-not (seq lines)
+        counter
+        (do (ingest (deserialize (first lines)) counter)
+            (recur (rest lines) (inc counter)))))))
+
+(defn read-journals [dir start-txn]
+  (loop [j (journals-from start-txn (file-numbers dir #"(\d+)\.journal\z")) t start-txn]
+    (if-not (seq j)
+      t
+      (recur (rest j) (read-journal dir (first j))))))
 
 (defn ^:private write-to-stream [w txn]
   (when txn
@@ -65,7 +74,9 @@
               (recur)))))
     write-ch))
 
-(defn ^:private txn-journaller [dir batch-size] "Journals transactions to the dir in batches of `batch-size`."
+(defn ^:private txn-journaller
+  "Journals transactions to the dir in batches of `batch-size`."
+  [dir batch-size]
   (let [write-ch (chan)]
     (go-loop []
       (let [txn (<! write-ch) out (journal-writer (journal-file-name dir (txn :id)))]
@@ -125,23 +136,15 @@
 (defn apply-snapshot [snapshot ref-list]
   (map #(dosync (ref-set %1 %2)) ref-list snapshot))
 
-(defn journals-from [snapshot-num journal-nums]
-  (let [sorted (sort journal-nums)]
-    (filter (fn [x] (>= x (last (filter #(<= % snapshot-num) sorted)))) sorted)))
+(defn enumerate [in start-id]
+  (let [out (chan 10)]
+    (go-loop [id start-id]
+      (>! out (assoc (<! in) :id id))
+      (recur (inc id)))
+    out))
 
-(def input-ch (map< enumerate-txn (chan 10)))
-
-(defn init-db
-  "Initialise the persistence base, reading and executing all persisted transactions.
-  Options:
-    ref-list: list of refs to persist in snapshots
-    batch-size: number of transactions per journal
-    data-"
-  [& {:keys [data-dir ref-list batch-size]
-      :or {data-dir "base"
-           ref-list nil
-           batch-size 1000}}]
-  (let [dir (File. data-dir)]
+(defn create-dir-if-needed [name]
+  (let [dir (File. name)]
     (if (.exists dir)
       (when-not
         (.isDirectory dir)
@@ -149,26 +152,45 @@
       (when-not
         (.mkdir dir)
         (throw (RuntimeException. (str "Can't create database directory \"" dir "\"")))))
-    (reset! txn-counter 0M)
+    dir))
+
+(defn init-db
+  "Initialise the persistence base, reading and executing all persisted transactions.
+  Options:
+    ref-list: list of refs to persist in snapshots
+    batch-size: number of transactions per journal
+    data-dir"
+  [& {:keys [data-dir ref-list batch-size]
+      :or {data-dir "base"
+           ref-list nil
+           batch-size 1000}}]
+  (let [dir (create-dir-if-needed data-dir)]
     ;Read snapshot
-    (when-let [last-txn-id (latest-snapshot-id dir)]
-      (apply-snapshot (read-snapshot dir last-txn-id) ref-list)
-      (reset! txn-counter (inc last-txn-id)))
-    ;Read journal
-    (doseq [n (journals-from @txn-counter (file-numbers dir #"(\d+)\.journal\z"))]
-      (read-journal (journal-file-name dir n)))
-    ;Start writer
-    (let [trigger (chan) input-mult (mult input-ch)]
-      (tap input-mult (txn-journaller dir batch-size)) ; pushes input transactions into the journaller
-      (thread (txn-executor (tap input-mult (chan)) (if ref-list (snapshot-writer ref-list dir trigger))))
-      {:snapshot-trigger trigger :ref-list ref-list})))
+    (let [last-snapshot (latest-snapshot-id dir)]
+      (when last-snapshot (apply-snapshot (read-snapshot dir last-snapshot) ref-list))
+
+      ;Read journal
+      (let [txn-counter (read-journals dir (or last-snapshot 0))]
+
+        ;Start writer
+        (let [trigger (chan)
+              input-ch (chan 10)
+              input-mult (mult (enumerate input-ch (or txn-counter 0)))]
+          (tap input-mult (txn-journaller dir batch-size)) ;push input transactions into the journaller
+          (thread (txn-executor
+                    (tap input-mult (chan))
+                    (if ref-list (snapshot-writer ref-list dir trigger))))
+          {:snapshot-trigger trigger :ref-list ref-list :input input-ch})))))
+
+(defn stop [prevalent-system]
+  (close! (prevalent-system :input)))
 
 (defn apply-transaction
   "Persist and apply a transaction, returning a channel that will contain the result. "
-  [txn-fn & args]
+  [prevalent-system txn-fn & args]
   (assert (fn? txn-fn) "Transaction to apply must be a fn.")
   (let [c (chan)]
-    (put! input-ch {:fn txn-fn :args args :ret c})
+    (put! (prevalent-system :input) {:fn txn-fn :args args :ret c})
     c))
 
 (defn take-snapshot "Pauses execution and takes a snapshot."
