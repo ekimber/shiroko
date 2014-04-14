@@ -164,23 +164,22 @@
       :or {data-dir "base"
            ref-list nil
            batch-size 1000}}]
-  (let [dir (create-dir-if-needed data-dir)]
-    ;Read snapshot
-    (let [last-snapshot (latest-snapshot-id dir)]
-      (when last-snapshot (apply-snapshot (read-snapshot dir last-snapshot) ref-list))
+  ;Read snapshots and journals
+  (let [dir (create-dir-if-needed data-dir)
+        last-snapshot (latest-snapshot-id dir)
+        txn-counter (read-journals dir (or last-snapshot 0))
+        trigger (chan)
+        input-ch (chan 10)
+        input-mult (mult (enumerate input-ch (or txn-counter 0)))]
 
-      ;Read journal
-      (let [txn-counter (read-journals dir (or last-snapshot 0))]
+    (when last-snapshot (apply-snapshot (read-snapshot dir last-snapshot) ref-list))
 
-        ;Start writer
-        (let [trigger (chan)
-              input-ch (chan 10)
-              input-mult (mult (enumerate input-ch (or txn-counter 0)))]
-          (tap input-mult (txn-journaller dir batch-size)) ;push input transactions into the journaller
-          (thread (txn-executor
-                    (tap input-mult (chan))
-                    (if ref-list (snapshot-writer ref-list dir trigger))))
-          {:snapshot-trigger trigger :ref-list ref-list :input input-ch})))))
+    ;Start writer
+    (tap input-mult (txn-journaller dir batch-size)) ;push input transactions into the journaller
+    (thread (txn-executor
+              (tap input-mult (chan))
+              (if ref-list (snapshot-writer ref-list dir trigger))))
+    {:snapshot-trigger trigger :ref-list ref-list :input input-ch}))
 
 (defn stop [prevalent-system]
   (close! (prevalent-system :input)))
