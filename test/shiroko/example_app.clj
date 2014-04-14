@@ -19,7 +19,7 @@
   [& args]
   (let [base (init-db :ref-list [msgs] :batch-size 4)]
     (dotimes [n 10]
-      (<!! (apply-transaction base write-msg "Bob" n (now-str))))
+      (<!! (transaction base (write-msg "Bob" n (now-str)))))
     (take-snapshot base)
     (dotimes [n 10]
       (thread (<!! (apply-transaction base write-msg "Bob" n (now-str))))))

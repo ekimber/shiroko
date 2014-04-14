@@ -195,3 +195,6 @@
 (defn take-snapshot "Pauses execution and takes a snapshot."
   [prevalent-system]
   (put! (prevalent-system :snapshot-trigger) :go))
+
+(defmacro transaction [prevalent-system body]
+  `(apply-transaction ~prevalent-system ~(first body) ~@(rest body)))
