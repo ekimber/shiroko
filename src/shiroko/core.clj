@@ -89,8 +89,8 @@
       (recur))
     write-ch))
 
-;; Snapshot writing
-(defn write-snapshot [snapshot fname]
+(defn write-snapshot "Write the serialized snapshot to a file."
+  [snapshot fname]
   (future (with-open [w (writer fname)]
     (.write w snapshot)
     (.flush w))))
@@ -185,7 +185,7 @@
   (close! (prevalent-system :input)))
 
 (defn apply-transaction
-  "Persist and apply a transaction, returning a channel that will contain the result. "
+  "Persist and apply a transaction, returning a channel that will contain the result."
   [prevalent-system txn-fn & args]
   (assert (fn? txn-fn) "Transaction to apply must be a fn.")
   (let [c (chan)]
@@ -196,5 +196,7 @@
   [prevalent-system]
   (put! (prevalent-system :snapshot-trigger) :go))
 
-(defmacro transaction [prevalent-system body]
+(defmacro transaction
+  "Persist and apply a transaction, returning a channel that will contain the result."
+  [prevalent-system body]
   `(apply-transaction ~prevalent-system ~(first body) ~@(rest body)))

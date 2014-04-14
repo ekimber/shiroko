@@ -18,13 +18,13 @@ Create a transaction that modifies the ref.
       (ref-set x (+ x a)))
 
 Initialise the persistent store with a list of refs (these will be used to make snapshots).  Then
-use `apply-transaction` to make changes to the refs.  It returns an async channel that will contain
+use `transaction` to make changes to the refs.  It returns an async channel that will contain
 the result of the transaction. The `batch-size` option determines how many transactions will be stored
 in each journal file.
 
     (let [base (init-db :ref-list [x] :batch-size 1000)]
       (dotimes [n 10]
-        (println (<!! (apply-transaction inc-x)))))
+        (println (<!! (transaction base (inc-x))))))
 
 The transactions will be persisted and replayed next time `init-db` is called.
 
@@ -34,6 +34,18 @@ are a large number of transactions.
 
         (take-snapshot base)
 
+## To Do
+
+More sophisticated journalling strategies than batch-size: max journal size, min period etc.
+
+Help with periodic snapshotting. Although it's already pretty easy for the user to this themselves
+by periodically executing `take-snapshot`.
+
+Tests that show the snapshot reading and journal fast-forward is working properly.
+
+Consider a special type of persistent ref that we can somehow use to be smarter about making sure
+all the correct refs are serialized in snapshots, or by preventing the user from modifying refs that
+are not included in a snapshot.
 
 ## License
 
