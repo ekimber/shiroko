@@ -42,10 +42,14 @@
 (fact "Failing transaction closes channel"
   (<!! (apply-transaction base bad-txn)) => nil)
 
+(fact "Init fails when journal is missing."
+  (delete-file (file "testbase/0.journal"))
+  (init-db :data-dir "testbase" :batch-size 4) =throws=> (Exception.))
+
 (fact "Writing/reading a snapshot"
-  @(write-snapshot (create-snapshot [(ref 2)]) "11.snapshot")
-  (read-snapshot "." 11) => '(2)
-  (delete-file (file "11.snapshot")))
+  @(write-snapshot (create-snapshot [(ref 2)]) "testbase/11.snapshot")
+  (read-snapshot "testbase" 11) => '(2)
+  (delete-file (file "testbase/11.snapshot")))
 
 (fact "Find journal sequence for snapshot number."
   (journals-from 10 '(3 10 23)) => '(10 23)
@@ -53,26 +57,26 @@
   (journals-from 0 '(1 9 15)) => '(1 9 15))
 
 (fact "Loads serialized journal"
-  (delete-test-files "t2")
-  (let [db (init-db :data-dir "t2" :batch-size 4)]
+  (delete-test-files "testbase")
+  (let [db (init-db :data-dir "testbase" :batch-size 4)]
     (reset-refs)
     (dotimes [_ 10] (<!! (apply-transaction db increment-x)))
     (let [new-x @x]
       (reset-refs)
       @x => 2
-      (init-db :data-dir "t2" :batch-size 4)
+      (init-db :data-dir "testbase" :batch-size 4)
       @x => new-x)))
 
 (fact "Loads snapshot"
-  (delete-test-files "test3")
-  (let [db (init-db :data-dir "test3" :batch-size 4 :ref-list [x])]
+  (delete-test-files "testbase3")
+  (let [db (init-db :data-dir "testbase3" :batch-size 4 :ref-list [x])]
     (reset-refs)
-    (dotimes [_ 10] (<!! (apply-transaction db increment-x)))
-    (take-snapshot db)
-    (<!! (apply-transaction db increment-x))
-    (delete-file  (file "test3/0.journal"))
-    (init-db :data-dir "test3" :batch-size 4 :ref-list [x])))
-    
+    (dotimes [_ 12] (<!! (apply-transaction db increment-x)))
+    @(write-snapshot (create-snapshot [(ref 12)]) "testbase3/10.snapshot") ; don't use take-snapshot because it's async
+    (latest-snapshot-id (file "testbase3")) => 10
+    (delete-file (file "testbase3/0.journal"))
+    (delete-file (file "testbase3/4.journal")))
+  (init-db :data-dir "testbase3" :batch-size 4 :ref-list [x]))
     
 (fact :bench "bench test"
   (bench (<!! (apply-transaction base increment-x))))

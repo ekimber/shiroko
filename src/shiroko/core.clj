@@ -23,8 +23,9 @@
     (throw (Exception. (str "Wanted " txn-id " but counter says " counter))))
     (if (= txn-id counter)
       (try
-        (dosync (apply f args))
-        (catch Exception e (warn e "Exception thrown while reading transaction.")))))
+        (dosync (apply f args) (inc counter))
+        (catch Exception e (warn e "Exception thrown while reading transaction.")))
+      counter))
 
 (defn ^:private deserialize [txn]
   (map #(s/deserialize % s/clojure-content-type) (split txn #";")))
@@ -44,19 +45,21 @@
       s
       (recur n (rest s)))))
 
-(defn ^:private read-journal [dir start-txn]
-  (with-open [rdr (reader (journal-file-name dir start-txn))]
+(defn ^:private read-journal [file start-txn]
+  (with-open [rdr (reader file)]
     (loop [lines (line-seq rdr) counter start-txn]
       (if-not (seq lines)
         counter
-        (do (ingest (deserialize (first lines)) counter)
-            (recur (rest lines) (inc counter)))))))
+        (recur (rest lines) (ingest (deserialize (first lines)) counter))))))
 
 (defn read-journals [dir start-txn]
-  (loop [j (journals-from start-txn (file-numbers dir #"(\d+)\.journal\z")) t start-txn]
-    (if-not (seq j)
-      t
-      (recur (rest j) (read-journal dir (first j))))))
+  (let [journal-nums (journals-from start-txn (file-numbers dir #"(\d+)\.journal\z"))]
+    (if (and (seq journal-nums) (< start-txn (first journal-nums)))
+      (throw (Exception. (str "Expected journals to start at " start-txn " but first journal was " (first journal-nums))))
+    (loop [j journal-nums t start-txn]
+      (if-not (seq j)
+        t
+        (recur (rest j) (read-journal (journal-file-name dir (first j)) t)))))))
 
 (defn ^:private write-to-stream [w txn]
   (when txn
@@ -102,7 +105,9 @@
 (defn snapshot-filename [id dir]
   (str dir "/" id ".snapshot"))
 
-(defn ^:private snapshot-writer [ref-list dir snapshot-trigger]
+(defn ^:private snapshot-writer
+  "Return a function that writes a snapshot if the trigger channel contains something and otherwise does nothing."
+  [ref-list dir snapshot-trigger]
   (fn [txn]
     (alt!!
       snapshot-trigger (write-snapshot (create-snapshot ref-list) (snapshot-filename (txn :id) dir))
@@ -159,7 +164,7 @@
   Options:
     ref-list: list of refs to persist in snapshots
     batch-size: number of transactions per journal
-    data-dir"
+    data-dir: name of directory to store journals and snapshots"
   [& {:keys [data-dir ref-list batch-size]
       :or {data-dir "base"
            ref-list nil
@@ -167,18 +172,17 @@
   ;Read snapshots and journals
   (let [dir (create-dir-if-needed data-dir)
         last-snapshot (latest-snapshot-id dir)
-        txn-counter (read-journals dir (or last-snapshot 0))
         trigger (chan)
-        input-ch (chan 10)
-        input-mult (mult (enumerate input-ch (or txn-counter 0)))]
+        input-ch (chan 10)]
 
     (when last-snapshot (apply-snapshot (read-snapshot dir last-snapshot) ref-list))
-
-    ;Start writer
-    (tap input-mult (txn-journaller dir batch-size)) ;push input transactions into the journaller
-    (thread (txn-executor
-              (tap input-mult (chan))
-              (if ref-list (snapshot-writer ref-list dir trigger))))
+    (let [txn-counter (read-journals dir (or last-snapshot 0))
+          input-mult (mult (enumerate input-ch (or txn-counter 0)))]
+      ;Start writer
+      (tap input-mult (txn-journaller dir batch-size)) ;push input transactions into the journaller
+      (thread (txn-executor
+                (tap input-mult (chan))
+                (if ref-list (snapshot-writer ref-list dir trigger)))))
     {:snapshot-trigger trigger :ref-list ref-list :input input-ch}))
 
 (defn stop [prevalent-system]
