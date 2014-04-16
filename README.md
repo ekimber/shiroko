@@ -4,7 +4,7 @@ Clojure Data Prevalence library.
 Leiningen dependencies:
 
      [org.clojure/clojure "1.5.1"]
-     [ekimber/shiroko "0.1.0"]
+     [ekimber/shiroko "0.1.1"]
 
 ## Usage
 
