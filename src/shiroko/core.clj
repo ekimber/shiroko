@@ -127,8 +127,8 @@
     (if (nil? snapshot)
       (txn-executor input)
       (loop [txn (<!! input)]
-        (execute txn)
         (snapshot txn)
+        (execute txn)
         (recur (<!! input))))))
 
 (defn read-snapshot [dir num]
@@ -139,7 +139,7 @@
     (apply max snap-nums)))
 
 (defn apply-snapshot [snapshot ref-list]
-  (map #(dosync (ref-set %1 %2)) ref-list snapshot))
+  (doall (map #(dosync (ref-set %1 %2)) ref-list snapshot)))
 
 (defn enumerate [in start-id]
   (let [out (chan 10)]

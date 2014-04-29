@@ -51,10 +51,17 @@
   (read-snapshot "testbase" 11) => '(2)
   (delete-file (file "testbase/11.snapshot")))
 
+(fact "Applying a snapshot"
+  (let [y (ref 7)]
+    @(write-snapshot (create-snapshot [y]) "testbase/11.snapshot")
+    (dosync (ref-set y 13))
+    (apply-snapshot (read-snapshot "testbase" 11) [y])
+    @y => 7))
+
 (fact "Find journal sequence for snapshot number."
   (journals-from 10 '(3 10 23)) => '(10 23)
   (journals-from 9 '(23 2 12)) => '(2 12 23)
-  (journals-from 0 '(1 9 15)) => '(1 9 15))
+  (journals-from 0 '(0 9 15)) => '(0 9 15))
 
 (fact "Loads serialized journal"
   (delete-test-files "testbase")
@@ -69,17 +76,27 @@
 
 (fact "Loads snapshot"
   (delete-test-files "testbase3")
+  (reset-refs)
   (let [db (init-db :data-dir "testbase3" :batch-size 4 :ref-list [x])]
-    (reset-refs)
-    (dotimes [_ 12] (<!! (apply-transaction db increment-x)))
-    @(write-snapshot (create-snapshot [(ref 12)]) "testbase3/10.snapshot") ; don't use take-snapshot because it's async
+    (dotimes [_ 10] (<!! (apply-transaction db increment-x)))
+    ;@(write-snapshot (create-snapshot [(ref 10)]) "testbase3/10.snapshot") ; don't use take-snapshot because it's async
+    (take-snapshot db)
+    (<!! (transaction db (increment-x))) => 13
     (latest-snapshot-id (file "testbase3")) => 10
-    (delete-file (file "testbase3/0.journal"))
-    (delete-file (file "testbase3/4.journal")))
-  (init-db :data-dir "testbase3" :batch-size 4 :ref-list [x]))
-    
+    ;(delete-file (file "testbase3/0.journal"))
+    ;(delete-file (file "testbase3/4.journal")))
+   )
+  (reset-refs)
+  (init-db :data-dir "testbase3" :batch-size 4 :ref-list [x])
+      @x => 13)
+
+
+
 (fact :bench "bench test"
   (bench (<!! (apply-transaction base increment-x))))
+
+(fact :bench "base bench"
+  (bench (dosync (increment-x))))
 
 ; TEARDOWN
 (delete-test-files "testbase")
