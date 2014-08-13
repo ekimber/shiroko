@@ -47,14 +47,14 @@
   (init-db :data-dir "testbase" :batch-size 4) =throws=> (Exception.))
 
 (fact "Writing/reading a snapshot"
-  @(write-snapshot (create-snapshot [(ref 2)]) "testbase/11.snapshot")
-  (read-snapshot "testbase" 11) => '(2)
+  @(write-snapshot (create-snapshot [(ref 2) (ref {:name "Ottokar"})]) "testbase/11.snapshot")
+  (read-snapshot "testbase" 11) => '(2 {:name "Ottokar"})
   (delete-file (file "testbase/11.snapshot")))
 
 (fact "Applying a snapshot"
   (let [y (ref 7)]
     @(write-snapshot (create-snapshot [y]) "testbase/11.snapshot")
-    (dosync (ref-set y 13))
+    (dosync (ref-set y "Ottokar"))
     (apply-snapshot (read-snapshot "testbase" 11) [y])
     @y => 7))
 
@@ -83,14 +83,12 @@
     (take-snapshot db)
     (<!! (transaction db (increment-x))) => 13
     (latest-snapshot-id (file "testbase3")) => 10
-    ;(delete-file (file "testbase3/0.journal"))
+    (delete-file (file "testbase3/0.journal"))
     ;(delete-file (file "testbase3/4.journal")))
    )
   (reset-refs)
   (init-db :data-dir "testbase3" :batch-size 4 :ref-list [x])
       @x => 13)
-
-
 
 (fact :bench "bench test"
   (bench (<!! (apply-transaction base increment-x))))

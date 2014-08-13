@@ -45,21 +45,26 @@
       s
       (recur n (rest s)))))
 
-(defn ^:private read-journal [file start-txn]
+(defn ^:private read-journal
+  "Read journal entries from file, with the given start id. Return the last read transaction id."
+  [file start-id]
   (with-open [rdr (reader file)]
-    (loop [lines (line-seq rdr) counter start-txn]
+    (loop [lines (line-seq rdr) counter start-id]
       (if-not (seq lines)
         counter
         (recur (rest lines) (ingest (deserialize (first lines)) counter))))))
 
+(defn check-journal-sequence [journal-nums start-txn]
+  (if (and (seq journal-nums) (< start-txn (first journal-nums)))
+    (throw (Exception. (str "Expected journals to start at " start-txn " but first journal was " (first journal-nums))))))
+
 (defn read-journals [dir start-txn]
   (let [journal-nums (journals-from start-txn (file-numbers dir #"(\d+)\.journal\z"))]
-    (if (and (seq journal-nums) (< start-txn (first journal-nums)))
-      (throw (Exception. (str "Expected journals to start at " start-txn " but first journal was " (first journal-nums))))
+    (check-journal-sequence journal-nums start-txn)
     (loop [j journal-nums t start-txn]
       (if-not (seq j)
         t
-        (recur (rest j) (read-journal (journal-file-name dir (first j)) t)))))))
+        (recur (rest j) (read-journal (journal-file-name dir (first j)) t))))))
 
 (defn ^:private write-to-stream [w txn]
   (when txn
@@ -78,16 +83,14 @@
     write-ch))
 
 (defn ^:private txn-journaller
-  "Journals transactions to the dir in batches of `batch-size`."
+  "Returns a channel that journals input transactions to the dir in batches of `batch-size`."
   [dir batch-size]
   (let [write-ch (chan)]
     (go-loop []
       (let [txn (<! write-ch) out (journal-writer (journal-file-name dir (txn :id)))]
         (>! out txn)
-        (loop [i 1]
-          (when (< i batch-size)
-            (>! out (<! write-ch))
-            (recur (inc i))))
+        (dotimes [i (dec batch-size)]
+          (>! out (<! write-ch)))
         (close! out))
       (recur))
     write-ch))
@@ -141,7 +144,9 @@
 (defn apply-snapshot [snapshot ref-list]
   (doall (map #(dosync (ref-set %1 %2)) ref-list snapshot)))
 
-(defn enumerate [in start-id]
+(defn enumerate
+  "Given a start id and an input channel containing transactions as maps, returns an output channel with sequential transaction ids."
+  [in start-id]
   (let [out (chan 10)]
     (go-loop [id start-id]
       (>! out (assoc (<! in) :id id))
@@ -196,7 +201,7 @@
     (put! (prevalent-system :input) {:fn txn-fn :args args :ret c})
     c))
 
-(defn take-snapshot "Pauses execution and takes a snapshot."
+(defn take-snapshot "Triggers a snapshot after the next transaction has been executed."
   [prevalent-system]
   (put! (prevalent-system :snapshot-trigger) :go))
 
