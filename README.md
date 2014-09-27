@@ -38,7 +38,7 @@ are a large number of transactions.
 
 More sophisticated journalling strategies than batch-size: max journal size, min period etc.
 
-Help with periodic snapshotting. Although it's already pretty easy for the user to this themselves
+Help with periodic snapshotting. Although it's already pretty easy for the user to do this themselves
 by periodically executing `take-snapshot`.
 
 Tests that show the snapshot reading and journal fast-forward is working properly.
