@@ -24,7 +24,7 @@ in each journal file.
 
     (let [base (init-db :ref-list [x] :batch-size 1000)]
       (dotimes [n 10]
-        (println (<!! (transaction base (inc-x))))))
+        (println (<!! (transaction base (add-to-x 1))))))
 
 The transactions will be persisted and replayed next time `init-db` is called.
 
